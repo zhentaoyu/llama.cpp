@@ -3928,12 +3928,15 @@ static void ggml_sycl_mul_mat(ggml_backend_sycl_context & ctx, const ggml_tensor
 
     if (!split && src0->type == GGML_TYPE_F16 && ggml_is_permuted(src0) && ggml_is_permuted(src1) && src1->ne[1] == 1) {
         // KQ single-batch
+        printf("====sr0: %s, src1: %s call ggml_sycl_mul_mat_vec_p021=====\n", src0->name, src1->name);
         ggml_sycl_mul_mat_vec_p021(ctx, src0, src1, dst);
     } else if (!split && src0->type == GGML_TYPE_F16 && !ggml_is_contiguous(src0) && !ggml_is_transposed(src1) && src1->ne[1] == 1) {
         // KQV single-batch
+        printf("====sr0: %s, src1: %s call ggml_sycl_mul_mat_vec_nc=====\n", src0->name, src1->name);
         ggml_sycl_mul_mat_vec_nc(ctx, src0, src1, dst);
     } else if (!split && src0->type == GGML_TYPE_F16 && !ggml_is_transposed(src0) && !ggml_is_transposed(src1) && src1->ne[2]*src1->ne[3] > 1) {
         // KQ + KQV multi-batch
+        printf("====sr0: %s, src1: %s call ggml_sycl_mul_mat_batched_sycl=====\n", src0->name, src1->name);
         ggml_sycl_mul_mat_batched_sycl(ctx, src0, src1, dst);
     } else if (use_dequantize_mul_mat_vec) {
         ggml_sycl_op_mul_mat(ctx, src0, src1, dst, ggml_sycl_op_dequantize_mul_mat_vec, false);
