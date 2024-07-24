@@ -8483,8 +8483,22 @@ static void llm_build_kv_store(
 
     GGML_ASSERT(kv.size == n_ctx);
 
-    struct ggml_tensor * k_cache_view = ggml_view_1d(ctx, kv.k_l[il], n_tokens*n_embd_k_gqa,
-            (ggml_row_size(kv.k_l[il]->type, n_embd_k_gqa))*kv_head);
+    struct ggml_tensor * k_cache_view = nullptr;
+    // strore contiguous k cache when use flash-attn in cpu backend
+    // [hs, nh, kv_len, bs] --> [hs, kv_len, nh, bs] (permute) --> [hs, kv_len, nh, bs] (cont)
+    if (cparams.flash_attn && !cparams.offload_kqv) {
+        const int64_t hs_k = hparams.n_embd_head_k;
+        const int64_t nh_k =  hparams.n_head_kv(il);
+        k_cur = ggml_permute(ctx,
+                ggml_reshape_4d(ctx, k_cur, hs_k, nh_k, n_tokens, k_cur->ne[3]),
+                0, 2, 1 ,3);
+        k_cache_view = ggml_view_3d(ctx, kv.k_l[il], hs_k, n_tokens, nh_k,
+                hs_k*ggml_element_size(kv.k_l[il]), n_ctx*hs_k*ggml_element_size(kv.k_l[il]),
+                kv_head*hs_k*ggml_element_size(kv.k_l[il]));
+    } else {
+        k_cache_view = ggml_view_1d(ctx, kv.k_l[il], n_tokens*n_embd_k_gqa,
+                (ggml_row_size(kv.k_l[il]->type, n_embd_k_gqa))*kv_head);
+    }
     cb(k_cache_view, "k_cache_view", il);
 
     // note: storing RoPE-ed version of K in the KV cache
@@ -8495,8 +8509,21 @@ static void llm_build_kv_store(
     struct ggml_tensor * v_cache_view = nullptr;
 
     if (cparams.flash_attn) {
-        v_cache_view = ggml_view_1d(ctx, kv.v_l[il], n_tokens*n_embd_v_gqa,
-                (kv_head)*ggml_row_size(kv.v_l[il]->type, n_embd_v_gqa));
+        // strore contiguous v cache when use flash-attn in cpu backend
+        // [hs, nh, kv_len, bs] --> [hs, kv_len, nh, bs] (permute) --> [hs, kv_len, nh, bs] (cont)
+        if (!cparams.offload_kqv) {
+            const int64_t hs_v = hparams.n_embd_head_v;
+            const int64_t nh_v =  hparams.n_head_kv(il);
+            v_cur = ggml_permute(ctx,
+                    ggml_reshape_4d(ctx, v_cur, hs_v, nh_v, n_tokens, v_cur->ne[3]),
+                    0, 2, 1 ,3);
+            v_cache_view = ggml_view_3d(ctx, kv.v_l[il], hs_v, n_tokens, nh_v,
+                    hs_v*ggml_element_size(kv.v_l[il]), n_ctx*hs_v*ggml_element_size(kv.v_l[il]),
+                    kv_head*hs_v*ggml_element_size(kv.v_l[il]));
+        } else {
+            v_cache_view = ggml_view_1d(ctx, kv.v_l[il], n_tokens*n_embd_v_gqa,
+                    (kv_head)*ggml_row_size(kv.v_l[il]->type, n_embd_v_gqa));
+        }
     } else {
         // note: the V cache is transposed when not using flash attention
         v_cache_view = ggml_view_2d(ctx, kv.v_l[il], n_tokens, n_embd_v_gqa,
@@ -8851,12 +8878,20 @@ static struct ggml_tensor * llm_build_kqv(
     struct ggml_tensor * q = ggml_permute(ctx, q_cur, 0, 2, 1, 3);
     cb(q, "q", il);
 
-    struct ggml_tensor * k =
-        ggml_view_3d(ctx, kv.k_l[il],
+    struct ggml_tensor * k = nullptr;
+    if (cparams.flash_attn & !cparams.offload_kqv) {
+        k = ggml_view_3d(ctx, kv.k_l[il],
+                n_embd_head_k, n_kv, n_head_kv,
+                n_embd_head_k*ggml_element_size(kv.k_l[il]),
+                n_ctx*n_embd_head_k*ggml_element_size(kv.k_l[il]),
+                0);
+    } else {
+        k = ggml_view_3d(ctx, kv.k_l[il],
                 n_embd_head_k, n_kv, n_head_kv,
                 ggml_row_size(kv.k_l[il]->type, n_embd_k_gqa),
                 ggml_row_size(kv.k_l[il]->type, n_embd_head_k),
                 0);
+    }
     cb(k, "k", il);
 
     struct ggml_tensor * cur;
@@ -8865,13 +8900,21 @@ static struct ggml_tensor * llm_build_kqv(
         GGML_UNUSED(model);
         GGML_UNUSED(n_ctx);
 
-        // split cached v into n_head heads (not transposed)
-        struct ggml_tensor * v =
-            ggml_view_3d(ctx, kv.v_l[il],
+        struct ggml_tensor * v = nullptr;
+        if (!cparams.offload_kqv) {
+            v = ggml_view_3d(ctx, kv.v_l[il],
+                    n_embd_head_v, n_kv, n_head_kv,
+                    n_embd_head_v*ggml_element_size(kv.v_l[il]),
+                    n_ctx*n_embd_head_v*ggml_element_size(kv.v_l[il]),
+                    0);
+        } else {
+            // split cached v into n_head heads (not transposed)
+            v = ggml_view_3d(ctx, kv.v_l[il],
                     n_embd_head_v, n_kv, n_head_kv,
                     ggml_row_size(kv.v_l[il]->type, n_embd_v_gqa),
                     ggml_row_size(kv.v_l[il]->type, n_embd_head_v),
                     0);
+        }
         cb(v, "v", il);
 
         cur = ggml_flash_attn_ext(ctx, q, k, v, kq_mask, kq_scale, hparams.f_max_alibi_bias);
