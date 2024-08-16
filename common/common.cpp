@@ -412,6 +412,17 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         params.prompt = argv[i];
         return true;
     }
+    if (arg == "--enlarge") {
+        CHECK_ARG
+        int times = std::stoi(argv[i]);
+        printf("+++++times: %d\n", times);
+        std::string pp = "";
+        for (int e = 0; e < times; ++e) {
+            pp += params.prompt;
+        }
+        params.prompt = pp;
+        return true;
+    }
     if (arg == "-e" || arg == "--escape") {
         params.escape = true;
         return true;
