@@ -186,6 +186,7 @@ struct gpt_params {
     bool no_kv_offload     = false; // disable KV offloading
     bool warmup            = true;  // warmup run
     bool check_tensors     = false; // validate tensor data
+    bool next_token_attn_on_cpu = false; // next token self-attn on cpu if the main backend is not cpu
 
     std::string cache_type_k = "f16"; // KV cache data type for the K
     std::string cache_type_v = "f16"; // KV cache data type for the V

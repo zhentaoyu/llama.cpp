@@ -2392,6 +2392,7 @@ struct llama_cparams {
     bool causal_attn;
     bool offload_kqv;
     bool flash_attn;
+    bool next_token_attn_on_cpu;
 
     enum llama_pooling_type pooling_type;
 
@@ -14771,7 +14772,8 @@ static struct ggml_cgraph * llama_build_graph(
             ggml_set_name(cur, name);
         }
 
-        if (!lctx.cparams.offload_kqv) {
+        if ((!lctx.cparams.offload_kqv && !lctx.cparams.next_token_attn_on_cpu) ||
+            (!lctx.cparams.offload_kqv && lctx.cparams.next_token_attn_on_cpu && batch.n_tokens == 1)) {
             if (strcmp(name, "kqv_merged_cont") == 0) {
                 // all nodes between the KV store and the attention output are run on the CPU
                 ggml_backend_sched_set_tensor_backend(lctx.sched, cur, lctx.backend_cpu);
@@ -17413,6 +17415,7 @@ struct llama_context_params llama_context_default_params() {
         /*.embeddings                  =*/ false,
         /*.offload_kqv                 =*/ true,
         /*.flash_attn                  =*/ false,
+        /*.next_token_attn_on_cpu      =*/ false,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,
     };
@@ -17609,6 +17612,8 @@ struct llama_context * llama_new_context_with_model(
     cparams.offload_kqv      = params.offload_kqv;
     cparams.flash_attn       = params.flash_attn;
     cparams.pooling_type     = params.pooling_type;
+
+    cparams.next_token_attn_on_cpu = params.next_token_attn_on_cpu;
 
     cparams.n_ctx            = params.n_ctx           == 0    ? hparams.n_ctx_train           : params.n_ctx;
     cparams.rope_freq_base   = params.rope_freq_base  == 0.0f ? hparams.rope_freq_base_train  : params.rope_freq_base;

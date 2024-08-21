@@ -415,7 +415,6 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     if (arg == "--enlarge") {
         CHECK_ARG
         int times = std::stoi(argv[i]);
-        printf("+++++times: %d\n", times);
         std::string pp = "";
         for (int e = 0; e < times; ++e) {
             pp += params.prompt;
@@ -865,6 +864,10 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
     }
     if (arg == "-nkvo" || arg == "--no-kv-offload") {
         params.no_kv_offload = true;
+        return true;
+    }
+    if (arg == "-ntaoc" || arg == "--next_token_attn_on_cpu") {
+        params.next_token_attn_on_cpu = true;
         return true;
     }
     if (arg == "-ctk" || arg == "--cache-type-k") {
@@ -2350,6 +2353,7 @@ struct llama_context_params llama_context_params_from_gpt_params(const gpt_param
     cparams.cb_eval_user_data = params.cb_eval_user_data;
     cparams.offload_kqv       = !params.no_kv_offload;
     cparams.flash_attn        = params.flash_attn;
+    cparams.next_token_attn_on_cpu = params.next_token_attn_on_cpu;
 
     cparams.type_k = kv_cache_type_from_str(params.cache_type_k);
     cparams.type_v = kv_cache_type_from_str(params.cache_type_v);
