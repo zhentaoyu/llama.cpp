@@ -17595,6 +17595,11 @@ struct llama_context * llama_new_context_with_model(
         return nullptr;
     }
 
+    if (params.next_token_attn_on_cpu && params.flash_attn) {
+        LLAMA_LOG_WARN("%s: next_token_attn_on_cpu does not support flash-attn since not all gpu backends have this op.\n", __func__);
+        params.flash_attn = false;
+    }
+
     llama_context * ctx = new llama_context(*model);
 
     const auto & hparams = model->hparams;
